@@ -12,6 +12,9 @@ const nextConfig = {
       { protocol: 'https', hostname: '**' },
     ],
   },
+  env: {
+    NEXT_PUBLIC_BACKEND_URL: process.env.BACKEND_INTERNAL_URL || 'http://localhost:8080',
+  },
   async rewrites() {
     const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:8080';
     return [
