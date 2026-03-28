@@ -1,0 +1,10 @@
+# Root
+.env
+*.pyc
+__pycache__
+node_modules
+.next
+.DS_Store
+*.log
+venv
+.venv

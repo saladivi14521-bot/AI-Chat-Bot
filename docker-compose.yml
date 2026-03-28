@@ -1,0 +1,57 @@
+version: '3.9'
+
+services:
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: smartrep_postgres
+    environment:
+      POSTGRES_USER: smartrep
+      POSTGRES_PASSWORD: smartrep_pass
+      POSTGRES_DB: smartrep_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartrep -d smartrep_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Redis (Cache + Message Queue)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: smartrep_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # ChromaDB (Vector Database)
+  # ============================================
+  chromadb:
+    image: chromadb/chroma:0.5.23
+    container_name: smartrep_chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+
+volumes:
+  postgres_data:
+  redis_data:
+  chroma_data:
