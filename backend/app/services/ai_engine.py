@@ -472,10 +472,11 @@ Reply as JSON:
 {{"language": "...", "intent": "...", "sentiment": "...", "response": "..."}}"""
 
         try:
-            chat_model_name = settings.GEMINI_MODEL or "gemini-2.5-flash"
+            # Use gemini-2.5-flash-lite for chat — it's fast (1-2s) and doesn't "think"
+            # gemini-2.5-flash is a thinking model (30+ seconds) — too slow for chat!
+            chat_model_name = "gemini-2.5-flash-lite"
             logger.info(f"Calling Gemini API (model={chat_model_name})...")
             
-            # Configure and create model for chat responses
             genai.configure(api_key=settings.GEMINI_API_KEY)
             fast_model = genai.GenerativeModel(
                 model_name=chat_model_name,

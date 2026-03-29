@@ -31,8 +31,9 @@ async def lifespan(app: FastAPI):
     # Create admin user if not exists
     await create_admin_user()
 
-    # Sync products & knowledge base to ChromaDB (in-memory, needs reload each deploy)
-    await sync_knowledge_to_vectorstore()
+    # Sync products & knowledge base to ChromaDB in background (don't block server startup)
+    import asyncio
+    asyncio.create_task(_background_sync())
 
     logger.info("✅ SmartRep AI Backend is ready!")
     yield
@@ -68,6 +69,16 @@ async def create_admin_user():
             logger.info(f"✅ Admin user created: {settings.ADMIN_EMAIL}")
         else:
             logger.info("ℹ️ Admin user already exists")
+
+
+async def _background_sync():
+    """Run sync in background so server starts immediately"""
+    try:
+        await asyncio.sleep(2)  # Let server fully start first
+        logger.info("📚 Starting background knowledge sync...")
+        await sync_knowledge_to_vectorstore()
+    except Exception as e:
+        logger.error(f"Background sync failed: {e}")
 
 
 async def sync_knowledge_to_vectorstore():
