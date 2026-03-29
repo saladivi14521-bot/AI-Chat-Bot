@@ -17,39 +17,28 @@ class VectorStore:
     """Manages ChromaDB collections for business knowledge bases"""
 
     def __init__(self):
-        self._client = None
+        # Always use in-memory ChromaDB — simplest and most reliable
+        # On Railway: data synced from PostgreSQL on startup
+        # Locally: data synced from PostgreSQL on startup  
+        try:
+            self._client = chromadb.EphemeralClient()
+            logger.info("ChromaDB EphemeralClient initialized (in-memory)")
+        except Exception:
+            try:
+                self._client = chromadb.Client()
+                logger.info("ChromaDB Client initialized (in-memory)")
+            except Exception as e:
+                logger.error(f"ChromaDB init failed completely: {e}")
+                self._client = None
 
     @property
     def client(self):
         if self._client is None:
-            persist_dir = os.environ.get("CHROMA_PERSIST_DIR", "")
-            if persist_dir:
-                # Railway / Docker: use in-memory client to avoid grpc errors
-                # PersistentClient triggers grpc plugin_credentials errors on Railway
-                try:
-                    self._client = chromadb.Client()
-                    logger.info("ChromaDB in-memory Client (Railway mode - no grpc)")
-                except Exception as e:
-                    logger.warning(f"ChromaDB Client init failed: {e}")
-                    self._client = chromadb.Client()
-            else:
-                # Local dev: try HttpClient first, fallback to in-memory
-                try:
-                    self._client = chromadb.HttpClient(
-                        host=settings.CHROMA_HOST,
-                        port=settings.CHROMA_PORT,
-                    )
-                    # Test connection
-                    self._client.heartbeat()
-                    logger.info("Connected to ChromaDB HttpClient")
-                except Exception as e:
-                    logger.warning(f"ChromaDB HttpClient failed: {e}, using PersistentClient")
-                    try:
-                        self._client = chromadb.PersistentClient(path="./chroma_data")
-                        logger.info("ChromaDB PersistentClient at ./chroma_data")
-                    except Exception as e2:
-                        logger.warning(f"PersistentClient also failed: {e2}, using in-memory")
-                        self._client = chromadb.Client()
+            try:
+                self._client = chromadb.EphemeralClient()
+                logger.info("ChromaDB EphemeralClient re-initialized")
+            except Exception:
+                self._client = chromadb.Client()
         return self._client
 
     def _get_collection_name(self, business_id: str) -> str:
