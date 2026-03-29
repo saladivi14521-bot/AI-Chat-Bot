@@ -471,17 +471,33 @@ Reply in this EXACT JSON format (no markdown, no code blocks):
 {{"language": "...", "intent": "...", "sentiment": "...", "response": "your reply here"}}"""
 
         try:
-            logger.info("Calling Gemini API (single combined call)...")
+            logger.info(f"Calling Gemini API (model={settings.GEMINI_MODEL})...")
+            
+            # Use a fast model specifically for chat responses
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            fast_model = genai.GenerativeModel(
+                model_name="gemini-2.0-flash",
+                generation_config={
+                    "temperature": 0.7,
+                    "max_output_tokens": 512,
+                    "response_mime_type": "application/json",
+                },
+            )
+            
             raw_response = await asyncio.wait_for(
-                model.generate_content_async(combined_prompt),
-                timeout=30.0,
+                fast_model.generate_content_async(combined_prompt),
+                timeout=25.0,
             )
             raw_text = raw_response.text.strip()
-            logger.info(f"Gemini raw response: {raw_text[:200]}")
+            logger.info(f"Gemini raw response: {raw_text[:300]}")
 
-            # Clean up markdown code blocks if any
+            # Clean up markdown code blocks if present
             if raw_text.startswith("```"):
-                raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+                lines = raw_text.split("\n")
+                raw_text = "\n".join(lines[1:])
+                if raw_text.endswith("```"):
+                    raw_text = raw_text[:-3]
+                raw_text = raw_text.strip()
             if raw_text.startswith("`"):
                 raw_text = raw_text.strip("`").strip()
 
