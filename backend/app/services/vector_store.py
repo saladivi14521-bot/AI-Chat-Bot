@@ -21,13 +21,13 @@ class VectorStore:
         if self._client is None:
             persist_dir = os.environ.get("CHROMA_PERSIST_DIR", "")
             if persist_dir:
-                # Railway / Docker: use PersistentClient with local storage
+                # Railway / Docker: use in-memory client to avoid grpc errors
+                # PersistentClient triggers grpc plugin_credentials errors on Railway
                 try:
-                    os.makedirs(persist_dir, exist_ok=True)
-                    self._client = chromadb.PersistentClient(path=persist_dir)
-                    logger.info(f"ChromaDB PersistentClient at {persist_dir}")
+                    self._client = chromadb.Client()
+                    logger.info("ChromaDB in-memory Client (Railway mode - no grpc)")
                 except Exception as e:
-                    logger.warning(f"ChromaDB PersistentClient failed: {e}, using in-memory")
+                    logger.warning(f"ChromaDB Client init failed: {e}")
                     self._client = chromadb.Client()
             else:
                 # Local dev: try HttpClient first, fallback to in-memory

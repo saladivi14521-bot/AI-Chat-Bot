@@ -63,7 +63,7 @@ async def handle_facebook_webhook(request: Request):
             if message and message.get("text"):
                 # Process in background to respond quickly to Facebook
                 logger.info(f"📩 Message from {sender_id} to page {recipient_id}: {message['text'][:100]}")
-                asyncio.create_task(
+                task = asyncio.create_task(
                     process_incoming_message(
                         page_id=recipient_id,
                         sender_id=sender_id,
@@ -71,6 +71,7 @@ async def handle_facebook_webhook(request: Request):
                         message_id=message.get("mid"),
                     )
                 )
+                task.add_done_callback(_task_done_callback)
 
         # ===== FEED EVENTS (Posts, Comments) =====
         for change in entry.get("changes", []):
@@ -112,6 +113,19 @@ async def handle_facebook_webhook(request: Request):
     return {"status": "ok"}
 
 
+def _task_done_callback(task: asyncio.Task):
+    """Callback to log exceptions from background tasks that would otherwise be silent"""
+    try:
+        exc = task.exception()
+        if exc:
+            logger.error(f"🔴 Background task FAILED: {exc}")
+            logger.error(f"Task traceback: {''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}")
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.error(f"Error in task callback: {e}")
+
+
 async def process_incoming_message(
     page_id: str,
     sender_id: str,
@@ -119,9 +133,11 @@ async def process_incoming_message(
     message_id: str = None,
 ):
     """Process an incoming message from Facebook"""
+    logger.info(f"🔄 process_incoming_message STARTED: page={page_id}, sender={sender_id}")
     async with async_session() as db:
         try:
             # 1. Find the Facebook page and business
+            logger.info(f"Looking up FacebookPage with page_id={page_id}")
             result = await db.execute(
                 select(FacebookPage).where(FacebookPage.page_id == page_id)
             )
@@ -319,8 +335,10 @@ async def process_incoming_message(
                 db.add(alert_event)
 
             await db.commit()
+            logger.info(f"✅ AI response ready for {sender_id}: {ai_result['response'][:100]}")
 
             # 12. Send AI response via Facebook
+            logger.info(f"📤 Sending reply to {sender_id} via Facebook...")
             await facebook_service.send_message(
                 page_id=fb_page.id,
                 recipient_id=sender_id,
