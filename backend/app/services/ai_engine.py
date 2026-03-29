@@ -472,26 +472,37 @@ Reply as JSON:
 {{"language": "...", "intent": "...", "sentiment": "...", "response": "..."}}"""
 
         try:
-            # Use gemini-2.5-flash-lite for chat — it's fast (1-2s) and doesn't "think"
-            # gemini-2.5-flash is a thinking model (30+ seconds) — too slow for chat!
+            import httpx
+            # Direct REST API call — faster and more reliable than google-generativeai library
             chat_model_name = "gemini-2.5-flash-lite"
-            logger.info(f"Calling Gemini API (model={chat_model_name})...")
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{chat_model_name}:generateContent"
             
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            fast_model = genai.GenerativeModel(
-                model_name=chat_model_name,
-                generation_config={
+            logger.info(f"Calling Gemini REST API (model={chat_model_name})...")
+            
+            request_body = {
+                "contents": [{"parts": [{"text": combined_prompt}]}],
+                "generationConfig": {
                     "temperature": 0.7,
-                    "max_output_tokens": 1024,
-                    "response_mime_type": "application/json",
+                    "maxOutputTokens": 1024,
+                    "responseMimeType": "application/json",
                 },
-            )
+            }
             
-            raw_response = await asyncio.wait_for(
-                fast_model.generate_content_async(combined_prompt),
-                timeout=30.0,
-            )
-            raw_text = raw_response.text.strip()
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                api_response = await client.post(
+                    api_url,
+                    params={"key": settings.GEMINI_API_KEY},
+                    json=request_body,
+                )
+            
+            logger.info(f"Gemini API status: {api_response.status_code}")
+            
+            if api_response.status_code != 200:
+                logger.error(f"Gemini API error: {api_response.status_code} - {api_response.text[:300]}")
+                raise Exception(f"Gemini API returned {api_response.status_code}")
+            
+            response_data = api_response.json()
+            raw_text = response_data["candidates"][0]["content"]["parts"][0]["text"].strip()
             logger.info(f"Gemini raw response: {raw_text[:300]}")
 
             # Clean up markdown code blocks if present
