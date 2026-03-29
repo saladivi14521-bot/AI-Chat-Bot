@@ -203,6 +203,35 @@ async def root():
     }
 
 
+@app.get("/debug/chromadb")
+async def debug_chromadb():
+    """Check ChromaDB status and document count"""
+    from app.services.vector_store import vector_store
+    try:
+        collections = vector_store.client.list_collections()
+        result = {"collections": []}
+        for col in collections:
+            result["collections"].append({
+                "name": col.name,
+                "count": col.count(),
+            })
+        result["total_collections"] = len(collections)
+        result["client_type"] = type(vector_store.client).__name__
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/debug/force-sync")
+async def force_sync():
+    """Force sync products and KB to ChromaDB"""
+    try:
+        await sync_knowledge_to_vectorstore()
+        return {"status": "sync completed"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/health")
 async def health_check():
     return {
