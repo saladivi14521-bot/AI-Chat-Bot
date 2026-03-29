@@ -458,35 +458,37 @@ Currency: {business_context.get('currency', 'BDT')}
 CUSTOMER MESSAGE: "{customer_message}"
 
 INSTRUCTIONS:
-1. Detect the language (banglish/bangla/english/hindi/hinglish)
-2. Detect intent (product_query/price_query/order_status/complaint/general_greeting/purchase_intent/negotiation/return_refund/other)
-3. Detect sentiment (positive/neutral/negative/angry)
-4. Write a helpful reply in the SAME language as the customer
-5. Keep reply short (2-4 sentences), friendly, use emojis naturally
-6. Never reveal you are AI
-7. If customer writes in Banglish, reply in Banglish
-8. If customer writes in Bangla, reply in Bangla script
+1. "language" MUST be one of: "banglish", "bangla", "english", "hindi", "hinglish"
+2. "intent" MUST be one of: "product_query", "price_query", "order_status", "complaint", "general_greeting", "purchase_intent", "negotiation", "return_refund", "other"
+3. "sentiment" MUST be one of: "positive", "neutral", "negative", "angry"
+4. "response" = your helpful reply in the SAME language the customer used
+5. Keep reply short (2-3 sentences max), friendly, use 1-2 emojis
+6. If customer writes in Banglish (Bengali in English letters), reply in Banglish
+7. If customer writes in Bangla script, reply in Bangla script
+8. Never reveal you are AI - you are a human representative
+9. If you have product info from KNOWLEDGE BASE above, use it in your reply
 
-Reply in this EXACT JSON format (no markdown, no code blocks):
-{{"language": "...", "intent": "...", "sentiment": "...", "response": "your reply here"}}"""
+Reply as JSON:
+{{"language": "...", "intent": "...", "sentiment": "...", "response": "..."}}"""
 
         try:
-            logger.info(f"Calling Gemini API (model={settings.GEMINI_MODEL})...")
+            chat_model_name = settings.GEMINI_MODEL or "gemini-2.5-flash"
+            logger.info(f"Calling Gemini API (model={chat_model_name})...")
             
-            # Use a fast model specifically for chat responses
+            # Configure and create model for chat responses
             genai.configure(api_key=settings.GEMINI_API_KEY)
             fast_model = genai.GenerativeModel(
-                model_name="gemini-2.0-flash",
+                model_name=chat_model_name,
                 generation_config={
                     "temperature": 0.7,
-                    "max_output_tokens": 512,
+                    "max_output_tokens": 1024,
                     "response_mime_type": "application/json",
                 },
             )
             
             raw_response = await asyncio.wait_for(
                 fast_model.generate_content_async(combined_prompt),
-                timeout=25.0,
+                timeout=30.0,
             )
             raw_text = raw_response.text.strip()
             logger.info(f"Gemini raw response: {raw_text[:300]}")
