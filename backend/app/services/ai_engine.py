@@ -515,7 +515,26 @@ Reply as JSON:
             if raw_text.startswith("`"):
                 raw_text = raw_text.strip("`").strip()
 
-            parsed = json_module.loads(raw_text)
+            # Try to parse JSON - handle "Extra data" by extracting first JSON object
+            try:
+                parsed = json_module.loads(raw_text)
+            except json_module.JSONDecodeError:
+                # Try to extract first JSON object using regex
+                import re
+                json_match = re.search(r'\{[^{}]*"response"\s*:\s*"[^"]*"[^{}]*\}', raw_text, re.DOTALL)
+                if json_match:
+                    parsed = json_module.loads(json_match.group())
+                    logger.info("Extracted JSON from raw response using regex")
+                else:
+                    # Last resort: build response from raw text
+                    logger.warning(f"Could not parse JSON, using raw text: {raw_text[:200]}")
+                    return {
+                        "response": raw_text[:500],
+                        "language": "auto",
+                        "intent": "other", 
+                        "sentiment": "neutral",
+                        "knowledge_used": len(knowledge_results),
+                    }
             
             result = {
                 "response": parsed.get("response", "Thank you for your message!"),
@@ -524,27 +543,17 @@ Reply as JSON:
                 "sentiment": parsed.get("sentiment", "neutral"),
                 "knowledge_used": len(knowledge_results),
             }
-            logger.info(f"AI result: lang={result['language']}, intent={result['intent']}, response={result['response'][:80]}")
+            logger.info(f"✅ AI result: lang={result['language']}, intent={result['intent']}, response={result['response'][:80]}")
             return result
 
         except asyncio.TimeoutError:
-            logger.error("Gemini API timed out (30s)!")
+            logger.error("Gemini API timed out (25s)!")
             return {
                 "response": self._get_fallback_response("banglish"),
                 "language": "auto",
                 "intent": "other",
                 "sentiment": "neutral",
                 "knowledge_used": 0,
-            }
-        except json_module.JSONDecodeError as e:
-            logger.warning(f"Gemini response not valid JSON: {e}, raw: {raw_text[:200]}")
-            # If JSON parsing fails, use the raw text as the response
-            return {
-                "response": raw_text[:500] if raw_text else "Thank you for your message!",
-                "language": "auto",
-                "intent": "other",
-                "sentiment": "neutral",
-                "knowledge_used": len(knowledge_results),
             }
         except Exception as e:
             logger.error(f"AI engine error: {e}")
