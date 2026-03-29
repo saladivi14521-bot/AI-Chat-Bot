@@ -404,60 +404,127 @@ JSON Response:"""
         conversation_history: List[Dict],
     ) -> Dict:
         """
-        Main entry point: Process a customer message end-to-end
-        Returns: {response, language, intent, sentiment, segment_suggestion}
+        Main entry point: Process a customer message end-to-end.
+        OPTIMIZED: Single Gemini call does everything (language + intent + sentiment + response)
+        instead of 4 separate calls.
         """
-        # Step 1: Detect language, intent, sentiment
-        try:
-            language = await self.detect_language(customer_message)
-        except Exception as e:
-            logger.error(f"Language detection error: {e}")
-            language = "auto"
+        import asyncio
+        import json as json_module
 
-        try:
-            intent = await self.detect_intent(customer_message)
-        except Exception as e:
-            logger.error(f"Intent detection error: {e}")
-            intent = "other"
+        logger.info(f"AI process_message called: msg='{customer_message[:50]}', business_id={business_id}")
 
-        try:
-            sentiment = await self.detect_sentiment(customer_message)
-        except Exception as e:
-            logger.error(f"Sentiment detection error: {e}")
-            sentiment = "neutral"
-
-        # Step 2: Search knowledge base for relevant context (non-blocking)
+        # Step 1: Search knowledge base (non-blocking, with timeout)
         knowledge_results = []
         try:
-            knowledge_results = await vector_store.search(
-                business_id=business_id,
-                query=customer_message,
-                n_results=5,
+            knowledge_results = await asyncio.wait_for(
+                vector_store.search(
+                    business_id=business_id,
+                    query=customer_message,
+                    n_results=5,
+                ),
+                timeout=5.0,
             )
+            logger.info(f"RAG search returned {len(knowledge_results)} results")
+        except asyncio.TimeoutError:
+            logger.warning("RAG search timed out (5s), continuing without knowledge")
         except Exception as e:
-            logger.warning(f"Knowledge base search failed (continuing without RAG): {e}")
+            logger.warning(f"RAG search failed: {e}")
 
-        # Step 3: Generate response
+        # Build knowledge context
+        knowledge_context = ""
+        if knowledge_results:
+            knowledge_context = "\n\nPRODUCT/KNOWLEDGE BASE:\n"
+            for i, doc in enumerate(knowledge_results, 1):
+                knowledge_context += f"{i}. {doc['content']}\n"
+
+        # Build conversation history
+        history_text = ""
+        if conversation_history:
+            history_text = "\n\nRECENT CONVERSATION:\n"
+            for msg in conversation_history[-10:]:
+                role = "Customer" if msg["role"] == "customer" else "AI"
+                history_text += f"{role}: {msg['content']}\n"
+
+        # Step 2: SINGLE Gemini call - detect language, intent, sentiment + generate response
+        model = self._get_model()
+        
+        combined_prompt = f"""You are SmartRep AI, a smart sales representative for "{business_context.get('business_name', 'a business')}".
+
+BUSINESS: {business_context.get('business_name', 'Unknown')} - {business_context.get('business_description', '')}
+Currency: {business_context.get('currency', 'BDT')}
+{knowledge_context}
+{history_text}
+
+CUSTOMER MESSAGE: "{customer_message}"
+
+INSTRUCTIONS:
+1. Detect the language (banglish/bangla/english/hindi/hinglish)
+2. Detect intent (product_query/price_query/order_status/complaint/general_greeting/purchase_intent/negotiation/return_refund/other)
+3. Detect sentiment (positive/neutral/negative/angry)
+4. Write a helpful reply in the SAME language as the customer
+5. Keep reply short (2-4 sentences), friendly, use emojis naturally
+6. Never reveal you are AI
+7. If customer writes in Banglish, reply in Banglish
+8. If customer writes in Bangla, reply in Bangla script
+
+Reply in this EXACT JSON format (no markdown, no code blocks):
+{{"language": "...", "intent": "...", "sentiment": "...", "response": "your reply here"}}"""
+
         try:
-            response = await self.generate_response(
-                customer_message=customer_message,
-                business_context=business_context,
-                knowledge_results=knowledge_results,
-                conversation_history=conversation_history,
-                detected_language=language,
-                detected_intent=intent,
+            logger.info("Calling Gemini API (single combined call)...")
+            raw_response = await asyncio.wait_for(
+                model.generate_content_async(combined_prompt),
+                timeout=30.0,
             )
-        except Exception as e:
-            logger.error(f"Response generation failed: {e}")
-            response = "Thank you for your message! We will get back to you shortly."
+            raw_text = raw_response.text.strip()
+            logger.info(f"Gemini raw response: {raw_text[:200]}")
 
-        return {
-            "response": response,
-            "language": language,
-            "intent": intent,
-            "sentiment": sentiment,
-            "knowledge_used": len(knowledge_results),
-        }
+            # Clean up markdown code blocks if any
+            if raw_text.startswith("```"):
+                raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            if raw_text.startswith("`"):
+                raw_text = raw_text.strip("`").strip()
+
+            parsed = json_module.loads(raw_text)
+            
+            result = {
+                "response": parsed.get("response", "Thank you for your message!"),
+                "language": parsed.get("language", "auto"),
+                "intent": parsed.get("intent", "other"),
+                "sentiment": parsed.get("sentiment", "neutral"),
+                "knowledge_used": len(knowledge_results),
+            }
+            logger.info(f"AI result: lang={result['language']}, intent={result['intent']}, response={result['response'][:80]}")
+            return result
+
+        except asyncio.TimeoutError:
+            logger.error("Gemini API timed out (30s)!")
+            return {
+                "response": self._get_fallback_response("banglish"),
+                "language": "auto",
+                "intent": "other",
+                "sentiment": "neutral",
+                "knowledge_used": 0,
+            }
+        except json_module.JSONDecodeError as e:
+            logger.warning(f"Gemini response not valid JSON: {e}, raw: {raw_text[:200]}")
+            # If JSON parsing fails, use the raw text as the response
+            return {
+                "response": raw_text[:500] if raw_text else "Thank you for your message!",
+                "language": "auto",
+                "intent": "other",
+                "sentiment": "neutral",
+                "knowledge_used": len(knowledge_results),
+            }
+        except Exception as e:
+            logger.error(f"AI engine error: {e}")
+            return {
+                "response": self._get_fallback_response("banglish"),
+                "language": "auto",
+                "intent": "other",
+                "sentiment": "neutral",
+                "knowledge_used": 0,
+            }
 
 
 # Singleton
