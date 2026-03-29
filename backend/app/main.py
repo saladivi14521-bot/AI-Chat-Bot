@@ -2,6 +2,12 @@
 SmartRep AI - Main FastAPI Application
 Your AI-Powered Business Representative
 """
+import os
+# Suppress grpc plugin_credentials errors BEFORE any grpc imports
+os.environ["GRPC_VERBOSITY"] = "NONE"
+os.environ["GRPC_TRACE"] = ""
+os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "0"
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

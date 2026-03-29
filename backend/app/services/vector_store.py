@@ -3,6 +3,9 @@ SmartRep AI - Vector Store Service (ChromaDB)
 Manages embeddings for RAG (Retrieval Augmented Generation)
 """
 import os
+# Suppress grpc plugin_credentials errors that spam Railway logs
+os.environ.setdefault("GRPC_VERBOSITY", "NONE")
+os.environ.setdefault("GRPC_TRACE", "")
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from typing import List, Dict, Optional
