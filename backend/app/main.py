@@ -31,9 +31,14 @@ async def lifespan(app: FastAPI):
     # Create admin user if not exists
     await create_admin_user()
 
-    # Sync products & knowledge base to ChromaDB in background (don't block server startup)
-    import asyncio
-    asyncio.create_task(_background_sync())
+    # Sync products & knowledge base to ChromaDB 
+    # Direct await — must complete before server is ready, so RAG works from first request
+    try:
+        logger.info("📚 Syncing knowledge to ChromaDB...")
+        await sync_knowledge_to_vectorstore()
+        logger.info("📚 ChromaDB sync complete!")
+    except Exception as e:
+        logger.error(f"ChromaDB sync failed (non-fatal): {e}")
 
     logger.info("✅ SmartRep AI Backend is ready!")
     yield
@@ -73,12 +78,15 @@ async def create_admin_user():
 
 async def _background_sync():
     """Run sync in background so server starts immediately"""
+    import traceback
     try:
-        await asyncio.sleep(2)  # Let server fully start first
+        await asyncio.sleep(3)  # Let server fully start first
         logger.info("📚 Starting background knowledge sync...")
         await sync_knowledge_to_vectorstore()
+        logger.info("📚 Background sync completed!")
     except Exception as e:
-        logger.error(f"Background sync failed: {e}")
+        logger.error(f"Background sync FAILED: {e}")
+        logger.error(f"Background sync traceback: {traceback.format_exc()}")
 
 
 async def sync_knowledge_to_vectorstore():
@@ -94,6 +102,7 @@ async def sync_knowledge_to_vectorstore():
             # Get all businesses
             result = await db.execute(select(Business))
             businesses = result.scalars().all()
+            logger.info(f"📚 Found {len(businesses)} businesses to sync")
 
             total_products = 0
             total_kb = 0

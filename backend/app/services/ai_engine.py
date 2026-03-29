@@ -479,7 +479,9 @@ JSON RESPONSE FORMAT:
         try:
             import httpx
             # Direct REST API call — faster and more reliable than google-generativeai library
-            chat_model_name = "gemini-2.5-flash-lite"
+            # gemini-2.5-flash: smarter, ~3s via REST API (thinking model but REST is fast)
+            # gemini-2.5-flash-lite: faster ~1s but less intelligent
+            chat_model_name = "gemini-2.5-flash"
             api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{chat_model_name}:generateContent"
             
             logger.info(f"Calling Gemini REST API (model={chat_model_name})...")
