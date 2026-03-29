@@ -407,27 +407,49 @@ JSON Response:"""
         Main entry point: Process a customer message end-to-end
         Returns: {response, language, intent, sentiment, segment_suggestion}
         """
-        # Step 1: Detect language, intent, sentiment in parallel-ish
-        language = await self.detect_language(customer_message)
-        intent = await self.detect_intent(customer_message)
-        sentiment = await self.detect_sentiment(customer_message)
+        # Step 1: Detect language, intent, sentiment
+        try:
+            language = await self.detect_language(customer_message)
+        except Exception as e:
+            logger.error(f"Language detection error: {e}")
+            language = "auto"
 
-        # Step 2: Search knowledge base for relevant context
-        knowledge_results = await vector_store.search(
-            business_id=business_id,
-            query=customer_message,
-            n_results=5,
-        )
+        try:
+            intent = await self.detect_intent(customer_message)
+        except Exception as e:
+            logger.error(f"Intent detection error: {e}")
+            intent = "other"
+
+        try:
+            sentiment = await self.detect_sentiment(customer_message)
+        except Exception as e:
+            logger.error(f"Sentiment detection error: {e}")
+            sentiment = "neutral"
+
+        # Step 2: Search knowledge base for relevant context (non-blocking)
+        knowledge_results = []
+        try:
+            knowledge_results = await vector_store.search(
+                business_id=business_id,
+                query=customer_message,
+                n_results=5,
+            )
+        except Exception as e:
+            logger.warning(f"Knowledge base search failed (continuing without RAG): {e}")
 
         # Step 3: Generate response
-        response = await self.generate_response(
-            customer_message=customer_message,
-            business_context=business_context,
-            knowledge_results=knowledge_results,
-            conversation_history=conversation_history,
-            detected_language=language,
-            detected_intent=intent,
-        )
+        try:
+            response = await self.generate_response(
+                customer_message=customer_message,
+                business_context=business_context,
+                knowledge_results=knowledge_results,
+                conversation_history=conversation_history,
+                detected_language=language,
+                detected_intent=intent,
+            )
+        except Exception as e:
+            logger.error(f"Response generation failed: {e}")
+            response = "Thank you for your message! We will get back to you shortly."
 
         return {
             "response": response,

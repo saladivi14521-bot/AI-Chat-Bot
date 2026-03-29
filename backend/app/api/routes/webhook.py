@@ -3,6 +3,7 @@ SmartRep AI - Facebook Webhook Routes
 Handles incoming messages from Facebook Messenger + Feed events (posts, comments)
 """
 import asyncio
+import traceback
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,11 +62,14 @@ async def handle_facebook_webhook(request: Request):
             message = messaging_event.get("message", {})
             if message and message.get("text"):
                 # Process in background to respond quickly to Facebook
-                await process_incoming_message(
-                    page_id=recipient_id,
-                    sender_id=sender_id,
-                    message_text=message["text"],
-                    message_id=message.get("mid"),
+                logger.info(f"📩 Message from {sender_id} to page {recipient_id}: {message['text'][:100]}")
+                asyncio.create_task(
+                    process_incoming_message(
+                        page_id=recipient_id,
+                        sender_id=sender_id,
+                        message_text=message["text"],
+                        message_id=message.get("mid"),
+                    )
                 )
 
         # ===== FEED EVENTS (Posts, Comments) =====
@@ -134,8 +138,13 @@ async def process_incoming_message(
                 select(Business).where(Business.id == fb_page.business_id)
             )
             business = result.scalar_one_or_none()
-            if not business or not business.auto_reply_enabled:
+            if not business:
+                logger.warning(f"No business found for page {page_id}")
                 return
+            if not business.auto_reply_enabled:
+                logger.info(f"Auto-reply disabled for business {business.name} ({business.id})")
+                return
+            logger.info(f"Processing message for business: {business.name} (auto_reply={business.auto_reply_enabled})")
 
             # 2. Find or create customer
             result = await db.execute(
@@ -326,5 +335,6 @@ async def process_incoming_message(
             )
 
         except Exception as e:
-            logger.error(f"Error processing message: {e}")
+            logger.error(f"Error processing message from {sender_id}: {e}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             await db.rollback()
